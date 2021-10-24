@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -140,16 +139,8 @@ func (f vaultFS) WithAuthMethod(auth AuthMethod) fs.FS {
 	return &fsys
 }
 
-func validPath(name string) bool {
-	if runtime.GOOS != "windows" && strings.Contains(name, "\\") {
-		return false
-	}
-
-	return fs.ValidPath(name)
-}
-
 func (f vaultFS) Open(name string) (fs.File, error) {
-	if !validPath(name) {
+	if !internal.ValidPath(name) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
 	}
 
@@ -169,7 +160,7 @@ func (f vaultFS) Open(name string) (fs.File, error) {
 //
 // This implementation minimises Vault token uses by avoiding an extra Stat.
 func (f vaultFS) ReadFile(name string) ([]byte, error) {
-	if !validPath(name) {
+	if !internal.ValidPath(name) {
 		return nil, &fs.PathError{Op: "readFile", Path: name, Err: fs.ErrInvalid}
 	}
 
