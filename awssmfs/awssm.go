@@ -51,8 +51,8 @@ type awssmFS struct {
 
 // New provides a filesystem (an fs.FS) backed by the AWS Secrets Manager,
 // rooted at the given URL. Note that the URL may be either a regular
-// hierarchical URL or an opaque URI.
-//
+// hierarchical URL (like "aws+sm:///foo/bar") or an opaque URI (like
+// "aws+sm:foo/bar"), depending on how secrets are organized in Secrets Manager.
 //
 // A context can be given by using WithContextFS.
 func New(u *url.URL) (fs.FS, error) {
@@ -130,7 +130,7 @@ func (f *awssmFS) getClient(ctx context.Context) (SecretsManagerClient, error) {
 }
 
 func (f *awssmFS) Sub(name string) (fs.FS, error) {
-	if !fs.ValidPath(name) {
+	if !internal.ValidPath(name) {
 		return nil, &fs.PathError{Op: "sub", Path: name, Err: fs.ErrInvalid}
 	}
 
@@ -171,7 +171,7 @@ func (f *awssmFS) Open(name string) (fs.File, error) {
 }
 
 func (f *awssmFS) ReadDir(name string) ([]fs.DirEntry, error) {
-	if !fs.ValidPath(name) {
+	if !internal.ValidPath(name) {
 		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrInvalid}
 	}
 
@@ -203,7 +203,7 @@ func (f *awssmFS) ReadDir(name string) ([]fs.DirEntry, error) {
 // This implementation is slightly more performant than calling Open and then
 // reading the resulting fs.File.
 func (f *awssmFS) ReadFile(name string) ([]byte, error) {
-	if !fs.ValidPath(name) {
+	if !internal.ValidPath(name) {
 		return nil, &fs.PathError{Op: "readFile", Path: name, Err: fs.ErrInvalid}
 	}
 
