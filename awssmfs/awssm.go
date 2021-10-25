@@ -396,21 +396,27 @@ func (f *awssmFile) list() ([]fs.FileInfo, error) {
 		filters = []smtypes.Filter{{Key: "name", Values: []string{"!/"}}}
 	}
 
-	secrets, err := f.client.ListSecrets(f.ctx, &secretsmanager.ListSecretsInput{
-		MaxResults: 100, // 100 max results is the AWS limit - remove once pagination is implemented
-		Filters:    filters,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("listSecrets: %w", err)
-	}
+	secretList := []smtypes.SecretListEntry{}
 
-	if secrets.NextToken != nil {
-		// TODO: support pagination!
-		return nil, fmt.Errorf("listSecrets: more results are available, but pagination is not supported")
+	for token := (*string)(nil); ; {
+		secrets, err := f.client.ListSecrets(f.ctx, &secretsmanager.ListSecretsInput{
+			Filters:   filters,
+			NextToken: token,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("listSecrets: %w", err)
+		}
+
+		token = secrets.NextToken
+		secretList = append(secretList, secrets.SecretList...)
+
+		if token == nil {
+			break
+		}
 	}
 
 	// no such thing as empty directories in SM, they're artificial
-	if len(secrets.SecretList) == 0 {
+	if len(secretList) == 0 {
 		return nil, fmt.Errorf("%w (or empty): %q", fs.ErrNotExist, prefix)
 	}
 
@@ -418,7 +424,7 @@ func (f *awssmFile) list() ([]fs.FileInfo, error) {
 
 	seen := map[string]bool{}
 
-	for _, entry := range secrets.SecretList {
+	for _, entry := range secretList {
 		name := strings.TrimPrefix(*entry.Name, prefix)
 		if prefix != "/" {
 			name = strings.TrimPrefix(name, "/")

@@ -2,8 +2,13 @@ package awssmfs
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -19,8 +24,6 @@ var _ SecretsManagerClient = (*fakeClient)(nil)
 
 func (c *fakeClient) GetSecretValue(ctx context.Context, params *secretsmanager.GetSecretValueInput,
 	optFns ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
-	c.t.Logf("GetSecretValue(SecretId=%s)", *params.SecretId)
-
 	name := *params.SecretId
 	if val, ok := c.secrets[name]; ok {
 		out := secretsmanager.GetSecretValueOutput{Name: aws.String(name)}
@@ -40,10 +43,9 @@ func (c *fakeClient) GetSecretValue(ctx context.Context, params *secretsmanager.
 	}
 }
 
+//nolint:funlen,gocyclo
 func (c *fakeClient) ListSecrets(ctx context.Context, params *secretsmanager.ListSecretsInput,
-	optFns ...func(*secretsmanager.Options)) (*secretsmanager.ListSecretsOutput, error) {
-	c.t.Logf("ListSecrets(Filters=%v)", params.Filters)
-
+	optFns ...func(*secretsmanager.Options)) (out *secretsmanager.ListSecretsOutput, err error) {
 	nameFilter := ""
 
 	for _, f := range params.Filters {
@@ -51,6 +53,14 @@ func (c *fakeClient) ListSecrets(ctx context.Context, params *secretsmanager.Lis
 			nameFilter = f.Values[0]
 
 			break
+		}
+	}
+
+	offset := 0
+	if params.NextToken != nil {
+		offset, err = strconv.Atoi(*params.NextToken)
+		if err != nil {
+			return nil, fmt.Errorf("invalid nextToken for fakeClient %q: %w", *params.NextToken, err)
 		}
 	}
 
@@ -69,12 +79,42 @@ func (c *fakeClient) ListSecrets(ctx context.Context, params *secretsmanager.Lis
 		}
 	}
 
-	if params.MaxResults > 0 && len(secretList) > int(params.MaxResults) {
-		secretList = secretList[:int(params.MaxResults)]
+	// sort so pagination works
+	sort.Slice(secretList, func(i, j int) bool {
+		return aws.ToString(secretList[i].Name) < aws.ToString(secretList[j].Name)
+	})
+
+	if params.MaxResults == 0 {
+		// default to 2 results so we trigger pagination
+		params.MaxResults = 2
 	}
+
+	l := len(secretList)
+	m := int(params.MaxResults)
+
+	high := offset + m
+
+	var nextToken *string
+
+	switch {
+	case high < l:
+		secretList = secretList[offset:high]
+		nextToken = aws.String(strconv.Itoa(high))
+	case offset < l:
+		secretList = secretList[offset:]
+	default:
+		secretList = nil
+	}
+
+	// un-sort for a slightly more realistic test
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(secretList), func(i, j int) {
+		secretList[i], secretList[j] = secretList[j], secretList[i]
+	})
 
 	return &secretsmanager.ListSecretsOutput{
 		SecretList: secretList,
+		NextToken:  nextToken,
 	}, nil
 }
 
